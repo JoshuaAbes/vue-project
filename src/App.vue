@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { RouterLink, RouterView } from 'vue-router'
-import HelloWorld from './components/HelloWorld.vue'
+import { RouterLink, RouterView } from 'vue-router';
+import HelloWorld from './components/HelloWorld.vue';
+import { onMounted } from 'vue'; // Importe le hook onMounted de Vue
+import PouchDB from 'Pouchdb';
 </script>
 
 <template>
@@ -13,6 +15,7 @@ import HelloWorld from './components/HelloWorld.vue'
       <nav>
         <RouterLink to="/">Home</RouterLink>
         <RouterLink to="/about">About</RouterLink>
+        <RouterLink to="/JoshuaView">JoshuaView</RouterLink>
       </nav>
     </div>
   </header>
