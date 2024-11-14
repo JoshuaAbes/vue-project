@@ -36,10 +36,8 @@ function createDatabase() {
       <nav>
         <RouterLink to="/">Home</RouterLink>
         <RouterLink to="/about">About</RouterLink>
-        <<<<<<< HEAD <RouterLink to="/me">me</RouterLink>
-          =======
-          <RouterLink to="/JoshuaView">JoshuaView</RouterLink>
-          >>>>>>> db0606d37123eb15146347d02bbf65004facc38c
+        <RouterLink to="/me">me</RouterLink>
+
       </nav>
     </div>
   </header>
