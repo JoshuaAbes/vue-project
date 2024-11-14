@@ -1,4 +1,5 @@
 <script setup lang="ts">
+<<<<<<< HEAD
 import { RouterLink, RouterView } from 'vue-router'
 import HelloWorld from './components/HelloWorld.vue'
 import PouchDB from 'pouchdb';
@@ -24,6 +25,12 @@ function createDatabase() {
       console.error('Erreur lors de l’ajout du document :', err);
     });
 }
+=======
+import { RouterLink, RouterView } from 'vue-router';
+import HelloWorld from './components/HelloWorld.vue';
+import { onMounted } from 'vue'; // Importe le hook onMounted de Vue
+import PouchDB from 'Pouchdb';
+>>>>>>> db0606d37123eb15146347d02bbf65004facc38c
 </script>
 
 <template>
@@ -36,7 +43,11 @@ function createDatabase() {
       <nav>
         <RouterLink to="/">Home</RouterLink>
         <RouterLink to="/about">About</RouterLink>
+<<<<<<< HEAD
         <RouterLink to="/me">me</RouterLink>
+=======
+        <RouterLink to="/JoshuaView">JoshuaView</RouterLink>
+>>>>>>> db0606d37123eb15146347d02bbf65004facc38c
       </nav>
     </div>
   </header>
