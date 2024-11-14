@@ -1,0 +1,31 @@
+{
+    "project": {
+      "name": "Vue Project",
+      "version": "1.0.0",
+      "description": "A simple Vue.js project",
+      "author": {
+        "name": "John marco",
+        "email": "johndoe@example.com"
+      },
+      "dependencies": {
+        "vue": "^3.0.0",
+        "axios": "^0.21.1"
+      },
+      "settings": {
+        "database": {
+          "type": "CouchDB",
+          "host": "localhost",
+          "port": 5984,
+          "credentials": {
+            "username": "admin",
+            "password": "password123"
+          }
+        },
+        "server": {
+          "port": 8080,
+          "useSSL": false
+        }
+      }
+    }
+  }
+  

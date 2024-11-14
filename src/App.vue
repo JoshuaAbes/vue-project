@@ -1,6 +1,29 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from 'vue-router'
 import HelloWorld from './components/HelloWorld.vue'
+import PouchDB from 'pouchdb';
+
+// Méthode pour créer une base de données
+function createDatabase() {
+  // Créer une base de données locale nommée "kittens"
+  const db = new PouchDB('kittens');
+
+  // Ajouter un document dans la base de données
+  const doc = {
+    _id: '001',
+    name: 'Mittens',
+    species: 'Cat',
+    age: 3
+  };
+
+  db.put(doc)
+    .then(() => {
+      console.log('Document ajouté avec succès !');
+    })
+    .catch(err => {
+      console.error('Erreur lors de l’ajout du document :', err);
+    });
+}
 </script>
 
 <template>
@@ -13,6 +36,7 @@ import HelloWorld from './components/HelloWorld.vue'
       <nav>
         <RouterLink to="/">Home</RouterLink>
         <RouterLink to="/about">About</RouterLink>
+        <RouterLink to="/me">me</RouterLink>
       </nav>
     </div>
   </header>
@@ -77,7 +101,6 @@ nav a:first-of-type {
     text-align: left;
     margin-left: -1rem;
     font-size: 1rem;
-
     padding: 1rem 0;
     margin-top: 1rem;
   }
