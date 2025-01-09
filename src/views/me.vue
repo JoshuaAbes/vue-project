@@ -1,6 +1,7 @@
 <script lang="ts">
 import PouchDB from 'pouchdb';
 import PouchDBFind from 'pouchdb-find';
+import { defineComponent } from 'vue';
 PouchDB.plugin(PouchDBFind);
 
 // Interface pour définir la structure d'un document
@@ -10,9 +11,15 @@ interface Document {
     title: string;
     description: string;
     createdAt: string;
+    attachments?: {
+        [key: string]: {
+            content_type: string;
+            data: string;
+        };
+    };
 }
 
-export default {
+export default defineComponent({
     data() {
         return {
             documents: [] as Document[],
@@ -28,6 +35,8 @@ export default {
             isSyncing: false, // Pour gérer l'état du bouton pendant la synchronisation
             searchQuery: '',  // Pour la recherche
             batchSize: 10,   // Nombre de documents à générer
+            selectedFiles: [] as File[],
+            documentAttachments: {} as { [key: string]: string[] },
         };
     },
 
@@ -144,7 +153,7 @@ export default {
             }
         },
 
-        // Récupération de tous les documents
+        // Récupération de tous les documents avec leurs pièces jointes
         async fetchDocuments() {
             try {
                 if (this.localDb) {
@@ -152,6 +161,13 @@ export default {
                         include_docs: true
                     });
                     this.documents = result.rows.map(row => row.doc as Document);
+
+                    // Récupérer les pièces jointes pour chaque document
+                    for (const doc of this.documents) {
+                        if (doc._id) {
+                            await this.fetchDocumentAttachments(doc._id);
+                        }
+                    }
                 }
             } catch (error) {
                 console.error('Error fetching documents:', error);
@@ -180,7 +196,76 @@ export default {
             }
         },
 
-        // Ajout d'un nouveau document
+        // Gérer la sélection des fichiers
+        async handleFileSelect(event: Event, documentId?: string) {
+            const input = event.target as HTMLInputElement;
+            if (!input.files?.length) return;
+
+            const files = Array.from(input.files);
+            if (documentId) {
+                // Ajouter des fichiers à un document existant
+                await this.addAttachmentsToDocument(documentId, files);
+            } else {
+                // Pour un nouveau document
+                this.selectedFiles = files;
+            }
+        },
+
+        // Ajouter des pièces jointes à un document
+        async addAttachmentsToDocument(docId: string, files: File[]) {
+            try {
+                if (!this.localDb) return;
+
+                const doc = await this.localDb.get(docId);
+
+                for (const file of files) {
+                    const reader = new FileReader();
+                    reader.onloadend = async () => {
+                        const base64Data = reader.result as string;
+                        await this.localDb!.putAttachment(
+                            docId,
+                            file.name,
+                            doc._rev,
+                            base64Data.split(',')[1],
+                            file.type
+                        );
+                        await this.fetchDocumentAttachments(docId);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            } catch (error) {
+                console.error('Erreur lors de l\'ajout des pièces jointes:', error);
+            }
+        },
+
+        // Supprimer une pièce jointe
+        async deleteAttachment(docId: string, attachmentName: string) {
+            try {
+                if (!this.localDb) return;
+
+                const doc = await this.localDb.get(docId);
+                await this.localDb.removeAttachment(docId, attachmentName, doc._rev);
+                await this.fetchDocumentAttachments(docId);
+            } catch (error) {
+                console.error('Erreur lors de la suppression de la pièce jointe:', error);
+            }
+        },
+
+        // Récupérer les pièces jointes d'un document
+        async fetchDocumentAttachments(docId: string) {
+            try {
+                if (!this.localDb) return;
+
+                const doc = await this.localDb.get(docId, { attachments: true });
+                if (doc._attachments) {
+                    this.documentAttachments[docId] = Object.keys(doc._attachments);
+                }
+            } catch (error) {
+                console.error('Erreur lors de la récupération des pièces jointes:', error);
+            }
+        },
+
+        // Ajout d'un nouveau document avec pièces jointes
         async addDocument() {
             try {
                 if (this.localDb && this.newDocument.title && this.newDocument.description) {
@@ -188,9 +273,15 @@ export default {
                         ...this.newDocument,
                         createdAt: new Date().toISOString()
                     };
-                    await this.localDb.post(doc);
+                    const response = await this.localDb.post(doc);
+
+                    if (this.selectedFiles.length > 0) {
+                        await this.addAttachmentsToDocument(response.id, this.selectedFiles);
+                    }
+
                     this.newDocument.title = '';
                     this.newDocument.description = '';
+                    this.selectedFiles = [];
                     await this.fetchDocuments();
                 }
             } catch (error) {
@@ -235,7 +326,8 @@ export default {
         this.initDatabase();
         this.createIndex();  // Création de l'index au démarrage
     }
-}
+
+})
 </script>
 
 <template>
@@ -290,11 +382,23 @@ export default {
                     Ajouter
                 </button>
             </div>
+            <!-- Nouveau : Section pour l'ajout de médias -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Ajouter des médias
+                </label>
+                <input type="file" multiple @change="handleFileSelect" class="border p-2 rounded w-full">
+                <div v-if="selectedFiles.length" class="mt-2">
+                    <p class="text-sm text-gray-600">
+                        Fichiers sélectionnés :
+                        {{ selectedFiles.map(f => f.name).join(', ') }}
+                    </p>
+                </div>
+            </div>
             <button @click="addFakeDocument" class="bg-green-500 text-white px-4 py-2 rounded">
                 Ajouter un document de démo
             </button>
         </div>
-
         <!-- Liste des documents -->
         <div class="space-y-4">
             <div v-for="doc in documents" :key="doc._id" class="border p-4 rounded shadow">
@@ -314,6 +418,26 @@ export default {
                     <h3 class="text-lg font-bold">{{ doc.title }}</h3>
                     <p class="text-gray-600">{{ doc.description }}</p>
                     <p class="text-sm text-gray-400">Créé le: {{ new Date(doc.createdAt).toLocaleString() }}</p>
+
+                    <!-- Nouveau : Section des médias attachés -->
+                    <div class="mt-4">
+                        <h4 class="text-sm font-medium">Médias attachés :</h4>
+                        <div v-if="documentAttachments[doc._id!]" class="flex flex-wrap gap-2 mt-2">
+                            <div v-for="attachment in documentAttachments[doc._id!]" :key="attachment"
+                                class="flex items-center bg-gray-100 p-2 rounded">
+                                <span class="text-sm">{{ attachment }}</span>
+                                <button @click="deleteAttachment(doc._id!, attachment)"
+                                    class="ml-2 text-red-500 hover:text-red-700">
+                                    ×
+                                </button>
+                            </div>
+                        </div>
+                        <div class="mt-2">
+                            <input type="file" multiple @change="e => handleFileSelect(e, doc._id)"
+                                class="border p-2 rounded w-full">
+                        </div>
+                    </div>
+
                     <div class="flex gap-2 mt-2">
                         <button @click="startEditing(doc)" class="bg-yellow-500 text-white px-4 py-2 rounded">
                             Modifier
