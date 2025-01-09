@@ -1,5 +1,7 @@
 <script lang="ts">
 import PouchDB from 'pouchdb';
+import PouchDBFind from 'pouchdb-find';
+PouchDB.plugin(PouchDBFind);
 
 // Interface pour définir la structure d'un document
 interface Document {
@@ -23,7 +25,9 @@ export default {
             editingDocument: null as Document | null,
             showEditForm: false,
             syncStatus: '',  // Pour afficher le statut de synchronisation
-            isSyncing: false // Pour gérer l'état du bouton pendant la synchronisation
+            isSyncing: false, // Pour gérer l'état du bouton pendant la synchronisation
+            searchQuery: '',  // Pour la recherche
+            batchSize: 10,   // Nombre de documents à générer
         };
     },
 
@@ -56,6 +60,64 @@ export default {
             }
         },
 
+        // Création de l'index
+        async createIndex() {
+            try {
+                if (this.localDb) {
+                    await this.localDb.createIndex({
+                        index: {
+                            fields: ['title'],
+                            name: 'title_index'
+                        }
+                    });
+                    console.log('Index créé avec succès');
+                }
+            } catch (error) {
+                console.error('Erreur lors de la création de l\'index:', error);
+            }
+        },
+
+        // Factory pour générer plusieurs documents
+        async generateBatchDocuments() {
+            try {
+                if (this.localDb) {
+                    const batch = [];
+                    for (let i = 0; i < this.batchSize; i++) {
+                        batch.push({
+                            title: `Document Test ${Math.floor(Math.random() * 1000)}`,
+                            description: `Description générée ${i} - ${new Date().toLocaleString()}`,
+                            createdAt: new Date().toISOString()
+                        });
+                    }
+
+                    await this.localDb.bulkDocs(batch);
+                    await this.fetchDocuments();
+                    console.log(`${this.batchSize} documents générés`);
+                }
+            } catch (error) {
+                console.error('Erreur lors de la génération des documents:', error);
+            }
+        },
+
+        // Recherche par titre
+        async searchDocuments() {
+            try {
+                if (this.localDb && this.searchQuery) {
+                    const result = await this.localDb.find({
+                        selector: {
+                            title: { $regex: RegExp(this.searchQuery, 'i') }
+                        }
+                    });
+                    this.documents = result.docs as Document[];
+                } else {
+                    // Si la recherche est vide, afficher tous les documents
+                    await this.fetchDocuments();
+                }
+            } catch (error) {
+                console.error('Erreur lors de la recherche:', error);
+            }
+        },
+
         // Synchronisation manuelle
         async synchronizeManually() {
             try {
@@ -64,7 +126,6 @@ export default {
                 this.isSyncing = true;
                 this.syncStatus = 'Synchronisation en cours...';
 
-                // Synchronisation bidirectionnelle manuelle
                 await PouchDB.sync(this.localDb, this.storage, {
                     retry: true
                 });
@@ -72,7 +133,6 @@ export default {
                 await this.fetchDocuments();
                 this.syncStatus = 'Synchronisation réussie !';
 
-                // Effacer le message après 3 secondes
                 setTimeout(() => {
                     this.syncStatus = '';
                 }, 3000);
@@ -84,7 +144,7 @@ export default {
             }
         },
 
-        // Récupération de tous les documents depuis la base locale
+        // Récupération de tous les documents
         async fetchDocuments() {
             try {
                 if (this.localDb) {
@@ -107,7 +167,7 @@ export default {
             };
         },
 
-        // Ajout d'un document de démonstration dans la base locale
+        // Ajout d'un document de démonstration
         async addFakeDocument() {
             try {
                 if (this.localDb) {
@@ -120,7 +180,7 @@ export default {
             }
         },
 
-        // Ajout d'un nouveau document à partir du formulaire dans la base locale
+        // Ajout d'un nouveau document
         async addDocument() {
             try {
                 if (this.localDb && this.newDocument.title && this.newDocument.description) {
@@ -138,13 +198,13 @@ export default {
             }
         },
 
-        // Préparation de l'édition d'un document
+        // Préparation de l'édition
         startEditing(document: Document) {
             this.editingDocument = { ...document };
             this.showEditForm = true;
         },
 
-        // Mise à jour d'un document dans la base locale
+        // Mise à jour d'un document
         async updateDocument() {
             try {
                 if (this.localDb && this.editingDocument) {
@@ -158,7 +218,7 @@ export default {
             }
         },
 
-        // Suppression d'un document de la base locale
+        // Suppression d'un document
         async deleteDocument(document: Document) {
             try {
                 if (this.localDb && document._id && document._rev) {
@@ -171,9 +231,9 @@ export default {
         }
     },
 
-    // Initialisation au montage du composant
     mounted() {
         this.initDatabase();
+        this.createIndex();  // Création de l'index au démarrage
     }
 }
 </script>
@@ -193,6 +253,30 @@ export default {
                     <span v-if="isSyncing">Synchronisation...</span>
                     <span v-else>Synchroniser maintenant</span>
                 </button>
+            </div>
+        </div>
+
+        <!-- Factory et Recherche -->
+        <div class="mb-6 p-4 bg-gray-100 rounded">
+            <div class="flex gap-4 mb-4">
+                <div class="flex-1">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Générer des documents de test
+                    </label>
+                    <div class="flex gap-2">
+                        <input v-model="batchSize" type="number" min="1" class="border p-2 rounded w-24">
+                        <button @click="generateBatchDocuments" class="bg-indigo-500 text-white px-4 py-2 rounded">
+                            Générer
+                        </button>
+                    </div>
+                </div>
+                <div class="flex-1">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Rechercher par titre
+                    </label>
+                    <input v-model="searchQuery" @input="searchDocuments" type="text" placeholder="Rechercher..."
+                        class="border p-2 rounded w-full">
+                </div>
             </div>
         </div>
 
