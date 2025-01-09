@@ -15,46 +15,80 @@ export default {
         return {
             documents: [] as Document[],
             storage: null as PouchDB.Database | null,
+            localDb: null as PouchDB.Database | null,  // Base de données locale pour la réplication
             newDocument: {
                 title: '',
                 description: ''
             },
             editingDocument: null as Document | null,
-            showEditForm: false
+            showEditForm: false,
+            syncStatus: '',  // Pour afficher le statut de synchronisation
+            isSyncing: false // Pour gérer l'état du bouton pendant la synchronisation
         };
     },
 
     methods: {
-        // Initialisation de la base de données
+        // Initialisation des bases de données (locale et distante) avec réplication
         initDatabase() {
-            const db = new PouchDB('http://admim:VanilleThecat19@localhost:5984/post');
-            if (db) {
-                console.log("Connected to collection 'post'");
-                this.storage = db;
-                this.fetchDocuments(); // Charge les documents au démarrage
-                this.setupSync(); // Configure la synchronisation en temps réel
-            } else {
-                console.warn("Something went wrong with database connection");
-            }
-        },
+            // Création de la base de données locale
+            this.localDb = new PouchDB('local_posts');
 
-        // Configuration de la synchronisation en temps réel
-        setupSync() {
-            if (this.storage) {
-                this.storage.changes({
-                    since: 'now',
-                    live: true
-                }).on('change', () => {
+            // Connexion à la base de données distante
+            const remoteDb = new PouchDB('http://admim:VanilleThecat19@localhost:5984/post');
+
+            if (remoteDb) {
+                console.log("Connected to remote database 'post'");
+                this.storage = remoteDb;
+
+                // Configuration de la réplication bidirectionnelle en temps réel
+                PouchDB.sync(this.localDb, remoteDb, {
+                    live: true, // Synchronisation continue
+                    retry: true // Réessayer en cas d'échec
+                }).on('change', (change) => {
+                    // Déclenché lors d'un changement dans l'une des bases
+                    console.log('Changement détecté:', change);
                     this.fetchDocuments();
+                }).on('error', (err) => {
+                    console.error('Erreur de synchronisation:', err);
                 });
+
+                this.fetchDocuments(); // Chargement initial des documents
             }
         },
 
-        // Récupération de tous les documents
+        // Synchronisation manuelle
+        async synchronizeManually() {
+            try {
+                if (!this.localDb || !this.storage || this.isSyncing) return;
+
+                this.isSyncing = true;
+                this.syncStatus = 'Synchronisation en cours...';
+
+                // Synchronisation bidirectionnelle manuelle
+                await PouchDB.sync(this.localDb, this.storage, {
+                    retry: true
+                });
+
+                await this.fetchDocuments();
+                this.syncStatus = 'Synchronisation réussie !';
+
+                // Effacer le message après 3 secondes
+                setTimeout(() => {
+                    this.syncStatus = '';
+                }, 3000);
+            } catch (error) {
+                console.error('Erreur de synchronisation:', error);
+                this.syncStatus = 'Erreur de synchronisation';
+            } finally {
+                this.isSyncing = false;
+            }
+        },
+
+        // Récupération de tous les documents depuis la base locale
         async fetchDocuments() {
             try {
-                if (this.storage) {
-                    const result = await this.storage.allDocs({
+                if (this.localDb) {
+                    const result = await this.localDb.allDocs({
                         include_docs: true
                     });
                     this.documents = result.rows.map(row => row.doc as Document);
@@ -73,12 +107,12 @@ export default {
             };
         },
 
-        // Ajout d'un document de démonstration
+        // Ajout d'un document de démonstration dans la base locale
         async addFakeDocument() {
             try {
-                if (this.storage) {
+                if (this.localDb) {
                     const fakeDoc = this.generateFakeDocument();
-                    await this.storage.post(fakeDoc);
+                    await this.localDb.post(fakeDoc);
                     await this.fetchDocuments();
                 }
             } catch (error) {
@@ -86,15 +120,15 @@ export default {
             }
         },
 
-        // Ajout d'un nouveau document à partir du formulaire
+        // Ajout d'un nouveau document à partir du formulaire dans la base locale
         async addDocument() {
             try {
-                if (this.storage && this.newDocument.title && this.newDocument.description) {
+                if (this.localDb && this.newDocument.title && this.newDocument.description) {
                     const doc = {
                         ...this.newDocument,
                         createdAt: new Date().toISOString()
                     };
-                    await this.storage.post(doc);
+                    await this.localDb.post(doc);
                     this.newDocument.title = '';
                     this.newDocument.description = '';
                     await this.fetchDocuments();
@@ -110,11 +144,11 @@ export default {
             this.showEditForm = true;
         },
 
-        // Mise à jour d'un document
+        // Mise à jour d'un document dans la base locale
         async updateDocument() {
             try {
-                if (this.storage && this.editingDocument) {
-                    await this.storage.put(this.editingDocument);
+                if (this.localDb && this.editingDocument) {
+                    await this.localDb.put(this.editingDocument);
                     this.editingDocument = null;
                     this.showEditForm = false;
                     await this.fetchDocuments();
@@ -124,11 +158,11 @@ export default {
             }
         },
 
-        // Suppression d'un document
+        // Suppression d'un document de la base locale
         async deleteDocument(document: Document) {
             try {
-                if (this.storage && document._id && document._rev) {
-                    await this.storage.remove(document._id, document._rev);
+                if (this.localDb && document._id && document._rev) {
+                    await this.localDb.remove(document._id, document._rev);
                     await this.fetchDocuments();
                 }
             } catch (error) {
@@ -137,6 +171,7 @@ export default {
         }
     },
 
+    // Initialisation au montage du composant
     mounted() {
         this.initDatabase();
     }
@@ -145,7 +180,21 @@ export default {
 
 <template>
     <div class="container mx-auto p-4">
-        <h1 class="text-2xl font-bold mb-4">Gestion des Documents</h1>
+        <div class="flex justify-between items-center mb-4">
+            <h1 class="text-2xl font-bold">Gestion des Documents</h1>
+            <div class="flex items-center gap-4">
+                <span class="text-sm" :class="{
+                    'text-green-600': syncStatus === 'Synchronisation réussie !',
+                    'text-blue-600': syncStatus === 'Synchronisation en cours...',
+                    'text-red-600': syncStatus === 'Erreur de synchronisation'
+                }">{{ syncStatus }}</span>
+                <button @click="synchronizeManually" :disabled="isSyncing"
+                    class="bg-purple-500 text-white px-4 py-2 rounded flex items-center gap-2 disabled:opacity-50">
+                    <span v-if="isSyncing">Synchronisation...</span>
+                    <span v-else>Synchroniser maintenant</span>
+                </button>
+            </div>
+        </div>
 
         <!-- Formulaire d'ajout -->
         <div class="mb-6 p-4 bg-gray-100 rounded">
