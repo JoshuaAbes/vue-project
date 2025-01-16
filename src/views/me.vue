@@ -4,14 +4,23 @@ import PouchDBFind from 'pouchdb-find';
 import { defineComponent } from 'vue';
 PouchDB.plugin(PouchDBFind);
 
-// Interface pour définir la structure d'un document
+/**
+ * Interface définissant la structure d'un document
+ * @interface Document
+ * @property {string} [_id] - Identifiant unique du document
+ * @property {string} [_rev] - Numéro de révision du document
+ * @property {string} title - Titre du document
+ * @property {string} description - Description du document
+ * @property {string} createdAt - Date de création
+ * @property {Object} [_attachments] - Pièces jointes du document
+ */
 interface Document {
     _id?: string;
     _rev?: string;
     title: string;
     description: string;
     createdAt: string;
-    attachments?: {
+    _attachments?: {
         [key: string]: {
             content_type: string;
             data: string;
@@ -20,28 +29,35 @@ interface Document {
 }
 
 export default defineComponent({
+    /**
+     * État initial du composant
+     * @returns {Object} État initial
+     */
     data() {
         return {
-            documents: [] as Document[],
-            storage: null as PouchDB.Database | null,
-            localDb: null as PouchDB.Database | null,  // Base de données locale pour la réplication
-            newDocument: {
+            documents: [] as Document[],          // Liste des documents
+            storage: null as PouchDB.Database | null,    // Base de données distante
+            localDb: null as PouchDB.Database | null,    // Base de données locale
+            newDocument: {                        // Nouveau document à créer
                 title: '',
                 description: ''
             },
-            editingDocument: null as Document | null,
-            showEditForm: false,
-            syncStatus: '',  // Pour afficher le statut de synchronisation
-            isSyncing: false, // Pour gérer l'état du bouton pendant la synchronisation
-            searchQuery: '',  // Pour la recherche
-            batchSize: 10,   // Nombre de documents à générer
-            selectedFiles: [] as File[],
-            documentAttachments: {} as { [key: string]: string[] },
+            editingDocument: null as Document | null,    // Document en cours d'édition
+            showEditForm: false,                  // Affichage du formulaire d'édition
+            syncStatus: '',                       // Statut de synchronisation
+            isSyncing: false,                     // État de synchronisation en cours
+            searchQuery: '',                      // Terme de recherche
+            batchSize: 10,                        // Nombre de documents à générer
+            selectedFiles: [] as File[],          // Fichiers sélectionnés
+            documentAttachments: {} as { [key: string]: string[] },  // Pièces jointes par document
+            imageUrls: {} as { [key: string]: string },  // URLs des images
         };
     },
 
     methods: {
-        // Initialisation des bases de données (locale et distante) avec réplication
+        /**
+         * Initialise les bases de données et configure la réplication
+         */
         initDatabase() {
             // Création de la base de données locale
             this.localDb = new PouchDB('local_posts');
@@ -69,7 +85,9 @@ export default defineComponent({
             }
         },
 
-        // Création de l'index
+        /**
+         * Crée un index sur le champ 'title' pour la recherche
+         */
         async createIndex() {
             try {
                 if (this.localDb) {
@@ -86,7 +104,9 @@ export default defineComponent({
             }
         },
 
-        // Factory pour générer plusieurs documents
+        /**
+         * Génère un lot de documents de test
+         */
         async generateBatchDocuments() {
             try {
                 if (this.localDb) {
@@ -108,7 +128,9 @@ export default defineComponent({
             }
         },
 
-        // Recherche par titre
+        /**
+         * Effectue une recherche de documents par titre
+         */
         async searchDocuments() {
             try {
                 if (this.localDb && this.searchQuery) {
@@ -127,7 +149,9 @@ export default defineComponent({
             }
         },
 
-        // Synchronisation manuelle
+        /**
+         * Déclenche une synchronisation manuelle avec la base distante
+         */
         async synchronizeManually() {
             try {
                 if (!this.localDb || !this.storage || this.isSyncing) return;
@@ -153,7 +177,9 @@ export default defineComponent({
             }
         },
 
-        // Récupération de tous les documents avec leurs pièces jointes
+        /**
+         * Récupère tous les documents et leurs pièces jointes
+         */
         async fetchDocuments() {
             try {
                 if (this.localDb) {
@@ -166,6 +192,14 @@ export default defineComponent({
                     for (const doc of this.documents) {
                         if (doc._id) {
                             await this.fetchDocumentAttachments(doc._id);
+                            // Charger les URLs des images pour chaque pièce jointe
+                            if (this.documentAttachments[doc._id]) {
+                                for (const attachment of this.documentAttachments[doc._id]) {
+                                    if (this.isImage(attachment)) {
+                                        await this.loadImageUrl(doc._id, attachment);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -174,7 +208,10 @@ export default defineComponent({
             }
         },
 
-        // Génération d'un document de démonstration
+        /**
+         * Génère un document avec des données aléatoires
+         * @returns {Document} Document généré
+         */
         generateFakeDocument(): Document {
             return {
                 title: `Document ${Math.floor(Math.random() * 1000)}`,
@@ -183,20 +220,11 @@ export default defineComponent({
             };
         },
 
-        // Ajout d'un document de démonstration
-        async addFakeDocument() {
-            try {
-                if (this.localDb) {
-                    const fakeDoc = this.generateFakeDocument();
-                    await this.localDb.post(fakeDoc);
-                    await this.fetchDocuments();
-                }
-            } catch (error) {
-                console.error('Error adding fake document:', error);
-            }
-        },
-
-        // Gérer la sélection des fichiers
+        /**
+         * Gère la sélection des fichiers à attacher
+         * @param {Event} event - Événement de sélection de fichier
+         * @param {string} [documentId] - ID du document si ajout à un document existant
+         */
         async handleFileSelect(event: Event, documentId?: string) {
             const input = event.target as HTMLInputElement;
             if (!input.files?.length) return;
@@ -211,7 +239,11 @@ export default defineComponent({
             }
         },
 
-        // Ajouter des pièces jointes à un document
+        /**
+         * Ajoute des pièces jointes à un document
+         * @param {string} docId - ID du document
+         * @param {File[]} files - Fichiers à attacher
+         */
         async addAttachmentsToDocument(docId: string, files: File[]) {
             try {
                 if (!this.localDb) return;
@@ -221,15 +253,23 @@ export default defineComponent({
                 for (const file of files) {
                     const reader = new FileReader();
                     reader.onloadend = async () => {
-                        const base64Data = reader.result as string;
-                        await this.localDb!.putAttachment(
-                            docId,
-                            file.name,
-                            doc._rev,
-                            base64Data.split(',')[1],
-                            file.type
-                        );
-                        await this.fetchDocumentAttachments(docId);
+                        try {
+                            const base64Data = reader.result as string;
+                            const base64Content = base64Data.split(',')[1];
+                            console.log('Ajout de la pièce jointe:', file.name); // Log pour debug
+
+                            await this.localDb!.putAttachment(
+                                docId,
+                                file.name,
+                                doc._rev,
+                                base64Content,
+                                file.type
+                            );
+
+                            await this.fetchDocumentAttachments(docId);
+                        } catch (err) {
+                            console.error('Erreur lors de l\'ajout de la pièce jointe:', err);
+                        }
                     };
                     reader.readAsDataURL(file);
                 }
@@ -257,8 +297,10 @@ export default defineComponent({
                 if (!this.localDb) return;
 
                 const doc = await this.localDb.get(docId, { attachments: true });
+                console.log('Document avec attachements:', doc);
                 if (doc._attachments) {
                     this.documentAttachments[docId] = Object.keys(doc._attachments);
+                    console.log('Attachements pour', docId, ':', this.documentAttachments[docId]);
                 }
             } catch (error) {
                 console.error('Erreur lors de la récupération des pièces jointes:', error);
@@ -319,19 +361,83 @@ export default defineComponent({
             } catch (error) {
                 console.error('Error deleting document:', error);
             }
+        },
+
+        /**
+         * Vérifie si un fichier est une image
+         * @param {string} filename - Nom du fichier
+         * @returns {boolean} True si c'est une image
+         */
+        isImage(filename: string): boolean {
+            const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+            return imageExtensions.some(ext => filename.toLowerCase().endsWith(ext));
+        },
+
+        handleImageError(event: Event) {
+            const img = event.target as HTMLImageElement;
+            console.error('Erreur de chargement de l\'image:', img.src);
+            // Essayons de charger directement depuis la base de données locale
+            if (this.localDb && img.dataset.docId && img.dataset.attachment) {
+                this.localDb.getAttachment(img.dataset.docId, img.dataset.attachment)
+                    .then(blob => {
+                        if (blob && blob instanceof Blob) {
+                            img.src = URL.createObjectURL(blob);
+                        }
+                    })
+                    .catch(err => console.error('Erreur lors du chargement local:', err));
+            }
+        },
+
+        getAttachmentUrl(docId: string, attachmentName: string): string {
+            const credentials = btoa('admim:VanilleThecat19'); // Encodage Base64 des credentials
+            return `http://localhost:5984/post/${docId}/${attachmentName}`;
+        },
+
+        /**
+         * Récupère les données d'une image
+         * @param {string} docId - ID du document
+         * @param {string} attachmentName - Nom de la pièce jointe
+         * @returns {Promise<string|null>} URL de l'image
+         */
+        async getImageData(docId: string, attachmentName: string) {
+            try {
+                if (!this.localDb) return null;
+                const attachment = await this.localDb.getAttachment(docId, attachmentName);
+                if (attachment instanceof Blob) {
+                    return URL.createObjectURL(attachment);
+                }
+                // Si c'est un Buffer, le convertir en Blob
+                if (attachment) {
+                    const blob = new Blob([attachment], { type: 'image/*' });
+                    return URL.createObjectURL(blob);
+                }
+                return null;
+            } catch (error) {
+                console.error('Erreur lors de la récupération de l\'image:', error);
+                return null;
+            }
+        },
+
+        async loadImageUrl(docId: string, attachment: string) {
+            this.imageUrls[`${docId}-${attachment}`] = await this.getImageData(docId, attachment) || '';
         }
     },
 
+    /**
+     * Hooks de cycle de vie
+     * Initialise la base de données et crée l'index au montage du composant
+     */
     mounted() {
         this.initDatabase();
-        this.createIndex();  // Création de l'index au démarrage
+        this.createIndex();
     }
 
 })
 </script>
 
 <template>
-    <div class="container mx-auto p-4">
+    <div class="container mx-auto p-4 overflow-x-hidden">
+        <!-- En-tête avec bouton de synchronisation -->
         <div class="flex justify-between items-center mb-4">
             <h1 class="text-2xl font-bold">Gestion des Documents</h1>
             <div class="flex items-center gap-4">
@@ -348,7 +454,7 @@ export default defineComponent({
             </div>
         </div>
 
-        <!-- Factory et Recherche -->
+        <!-- Section Factory et Recherche -->
         <div class="mb-6 p-4 bg-gray-100 rounded">
             <div class="flex gap-4 mb-4">
                 <div class="flex-1">
@@ -372,7 +478,7 @@ export default defineComponent({
             </div>
         </div>
 
-        <!-- Formulaire d'ajout -->
+        <!-- Formulaire d'ajout de document -->
         <div class="mb-6 p-4 bg-gray-100 rounded">
             <h2 class="text-xl mb-2">Ajouter un nouveau document</h2>
             <div class="flex gap-2 mb-4">
@@ -395,7 +501,7 @@ export default defineComponent({
                     </p>
                 </div>
             </div>
-            <button @click="addFakeDocument" class="bg-green-500 text-white px-4 py-2 rounded">
+            <button @click="generateFakeDocument" class="bg-green-500 text-white px-4 py-2 rounded">
                 Ajouter un document de démo
             </button>
         </div>
@@ -423,13 +529,19 @@ export default defineComponent({
                     <div class="mt-4">
                         <h4 class="text-sm font-medium">Médias attachés :</h4>
                         <div v-if="documentAttachments[doc._id!]" class="flex flex-wrap gap-2 mt-2">
-                            <div v-for="attachment in documentAttachments[doc._id!]" :key="attachment"
-                                class="flex items-center bg-gray-100 p-2 rounded">
-                                <span class="text-sm">{{ attachment }}</span>
-                                <button @click="deleteAttachment(doc._id!, attachment)"
-                                    class="ml-2 text-red-500 hover:text-red-700">
-                                    ×
-                                </button>
+                            <div v-for="attachment in documentAttachments[doc._id!]" :key="attachment" class="relative">
+                                <template v-if="isImage(attachment)">
+                                    <img :src="imageUrls[`${doc._id}-${attachment}`]"
+                                        style="max-width: 300px; max-height: 300px; object-fit: contain;"
+                                        class="rounded" :alt="attachment">
+                                    <button @click="deleteAttachment(doc._id!, attachment)"
+                                        class="absolute top-0 right-0 bg-red-500 text-white p-1 rounded-full text-xs">
+                                        ×
+                                    </button>
+                                </template>
+                                <div v-else class="text-sm">
+                                    {{ attachment }}
+                                </div>
                             </div>
                         </div>
                         <div class="mt-2">
@@ -451,3 +563,9 @@ export default defineComponent({
         </div>
     </div>
 </template>
+
+<style>
+body {
+    overflow-x: hidden;
+}
+</style>
